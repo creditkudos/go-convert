@@ -58,11 +58,19 @@ var (
 )
 
 func TestStringArrayContains(t *testing.T) {
+	array := []string{"a", "b", "c", "&"}
 
-}
+	Convey("Populated array", t, func() {
+		result := stringArrayContains(array, "a")
+		So(result, ShouldBeTrue)
+		result = stringArrayContains(array, "f")
+		So(result, ShouldBeFalse)
+	})
 
-func TestV1ToV2(t *testing.T) {
-
+	Convey("Nil array", t, func() {
+		result := stringArrayContains(nil, "a")
+		So(result, ShouldBeTrue)
+	})
 }
 
 func TestV2ProtosToCSV(t *testing.T) {
@@ -70,11 +78,41 @@ func TestV2ProtosToCSV(t *testing.T) {
 }
 
 func TestProtoHeaders(t *testing.T) {
-	Convey("All fields created", func() {
+	Convey("All fields created", t, func() {
+		info := csvInfo{
+			make(map[string]map[string][]string),
+			make(map[string]bool),
+		}
 
+		protoHeader(v2TestMaster[0], &info, nil, "", "", "")
+		data := info.Data
+		fields := info.FieldRequired
+
+		for _, b := range fields {
+			So(b, ShouldBeTrue)
+		}
+
+		master := data["Master"]
+		minion := data["Minion"]
+		child := data["Child"]
+
+		So(master["a"], ShouldBeEmpty)
+		So(master["i"], ShouldBeNil)
+		So(master["j"], ShouldBeNil)
+		So(master["j.ma"], ShouldBeEmpty)
+		So(master["j.md"], ShouldBeNil)
+		So(master["j.md.ca"], ShouldBeEmpty)
+
+		So(minion["Master.id"], ShouldBeEmpty)
+		So(minion["md"], ShouldBeNil)
+		So(minion["md.ca"], ShouldBeEmpty)
+
+		So(child["Minion.id"], ShouldBeEmpty)
+		So(child["Master.id"], ShouldBeNil)
+		So(child["ca"], ShouldBeEmpty)
 	})
 
-	Convey("Certain fields created", func() {
+	Convey("Certain fields created", t, func() {
 
 	})
 }
