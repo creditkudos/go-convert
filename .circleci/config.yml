@@ -8,3 +8,5 @@ workflows:
           context: ck
       - go/go_lint:
           context: ck
+      - go/go_sec:
+          context: ck
