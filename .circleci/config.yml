@@ -1,0 +1,12 @@
+version: 2.1
+orbs:
+  go:        creditkudos/go@volatile
+workflows:
+  all:
+    jobs:
+      - go/go_test:
+          context: ck
+      - go/go_lint:
+          context: ck
+      - go/go_sec:
+          context: ck
