@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	v1TestMaster = []pb.Message{
+	v1TestData = []pb.Message{
 		&test_protos.Master{
 			A: "string",
 			B: 1,
@@ -54,7 +54,7 @@ var (
 			},
 		},
 	}
-	v2TestMaster, _ = V1ToV2(v1TestMaster)
+	v2TestData, _ = V1ToV2(v1TestData)
 )
 
 func TestStringArrayContains(t *testing.T) {
@@ -74,17 +74,51 @@ func TestStringArrayContains(t *testing.T) {
 }
 
 func TestV2ProtosToCSV(t *testing.T) {
+	Convey("All fields created", t, func() {
+		csvData, err := V2ProtosToCSV(v2TestData, nil)
 
+		So(err, ShouldBeNil)
+		So(csvData["Master"], ShouldEqual,
+			"a,b,c,d,e,f,g,h,j.ma,j.mb,j.md.ca\n"+
+				"string,1,-2,3,4,5.5,6.5,true,minion-string,7,child-string\n"+
+				",0,0,0,0,0,0,false,minion-string 2,7,child-string 2\n")
+		So(csvData["Minion"], ShouldEqual,
+			"Master.id,ma,mb,md.ca\n"+
+				"1,minion-string &2,0,\n"+
+				"1,minion-string =3,0,child-string \n")
+		So(csvData["Child"], ShouldEqual,
+			"Master.id,Minion.id,ca\n"+
+				",0,child-string \n")
+	})
+
+	Convey("Specific fields created", t, func() {
+		includedFields := make(map[string][]string)
+		includedFields["Master"] = []string{"a", "b", "c", "j", "i", "j.ma"}
+		includedFields["Minion"] = []string{"ma", "mb", "md"}
+		includedFields["Child"] = []string{"ca"}
+		csvData, err := V2ProtosToCSV(v2TestData, includedFields)
+
+		So(err, ShouldBeNil)
+		So(csvData["Master"], ShouldEqual,
+			"a,b,c,j.ma\n"+
+				"string,1,-2,minion-string\n"+
+				",0,0,minion-string 2\n")
+		So(csvData["Minion"], ShouldEqual,
+			"ma,mb\n"+
+				"minion-string &2,0\n"+
+				"minion-string =3,0\n")
+		So(csvData["Child"], ShouldEqual, "")
+	})
 }
 
-func TestProtoHeaders(t *testing.T) {
+func TestPopulateFieldNames(t *testing.T) {
 	Convey("All fields created", t, func() {
 		info := csvInfo{
 			make(map[string]map[string][]string),
 			make(map[string]int),
 		}
 
-		populateFieldNames(v2TestMaster[0], &info, nil, "", "", "")
+		populateFieldNames(v2TestData[0], &info, nil, "", "", "")
 		data := info.Data
 
 		master := data["Master"]
@@ -113,12 +147,12 @@ func TestProtoHeaders(t *testing.T) {
 			make(map[string]int),
 		}
 
-		headerFields := make(map[string][]string)
-		headerFields["Master"] = []string{"a", "b", "c", "j", "i", "j.ma"}
-		headerFields["Minion"] = []string{"ma", "mb", "md"}
-		headerFields["Child"] = []string{"ca"}
+		includedFields := make(map[string][]string)
+		includedFields["Master"] = []string{"a", "b", "c", "j", "i", "j.ma"}
+		includedFields["Minion"] = []string{"ma", "mb", "md"}
+		includedFields["Child"] = []string{"ca"}
 
-		populateFieldNames(v2TestMaster[0], &info, headerFields, "", "", "")
+		populateFieldNames(v2TestData[0], &info, includedFields, "", "", "")
 		data := info.Data
 		master := data["Master"]
 		minion := data["Minion"]
@@ -141,16 +175,16 @@ func TestProtoHeaders(t *testing.T) {
 	})
 }
 
-func TestProtoBody(t *testing.T) {
+func TestPopulateBody(t *testing.T) {
 	Convey("All fields created", t, func() {
 		info := csvInfo{
 			make(map[string]map[string][]string),
 			make(map[string]int),
 		}
 
-		populateFieldNames(v2TestMaster[0], &info, nil, "", "", "")
-		populateBody(v2TestMaster[0], &info, "", "", "", 0)
-		populateBody(v2TestMaster[1], &info, "", "", "", 0)
+		populateFieldNames(v2TestData[0], &info, nil, "", "", "")
+		populateBody(v2TestData[0], &info, "", "", "", 0)
+		populateBody(v2TestData[1], &info, "", "", "", 0)
 
 		data := info.Data
 		master := data["Master"]
@@ -180,27 +214,29 @@ func TestProtoBody(t *testing.T) {
 			make(map[string]int),
 		}
 
-		headerFields := make(map[string][]string)
-		headerFields["Master"] = []string{"a", "b", "c", "j", "i", "j.ma", "j.md", "j.md.ca"}
-		headerFields["Minion"] = []string{"ma", "mb", "md"}
-		headerFields["Child"] = []string{"ca"}
+		includedFields := make(map[string][]string)
+		includedFields["Master"] = []string{"a", "b", "c", "j", "i", "j.md", "j.md.ca"}
+		includedFields["Minion"] = []string{"Master.id", "ma", "mb", "md"}
+		includedFields["Child"] = []string{"ca"}
 
-		populateFieldNames(v2TestMaster[0], &info, headerFields, "", "", "")
-		populateBody(v2TestMaster[0], &info, "", "", "", 0)
-		populateBody(v2TestMaster[1], &info, "", "", "", 0)
+		populateFieldNames(v2TestData[0], &info, includedFields, "", "", "")
+		populateBody(v2TestData[0], &info, "", "", "", 0)
+		populateBody(v2TestData[1], &info, "", "", "", 0)
 
 		data := info.Data
 		master := data["Master"]
-		// minion := data["Minion"]
-		// child := data["Child"]
+		minion := data["Minion"]
 
 		So(master["a"][0], ShouldEqual, "string")
 		So(master["a"][1], ShouldEqual, "")
 		So(master["j"], ShouldBeNil)
-		So(master["j.ma"][0], ShouldEqual, "minion-string")
-		So(master["j.ma"][1], ShouldEqual, "minion-string 2")
 		So(master["j.md"], ShouldBeNil)
 		So(master["j.md.ca"][0], ShouldEqual, "child-string")
 		So(master["j.md.ca"][1], ShouldEqual, "child-string 2")
+
+		So(minion["Master.id"][0], ShouldEqual, 1)
+		So(minion["Master.id"][1], ShouldEqual, 1)
+		So(minion["ma"][0], ShouldEqual, "minion-string &2")
+		So(minion["mb"][1], ShouldEqual, "minion-string =3")
 	})
 }
