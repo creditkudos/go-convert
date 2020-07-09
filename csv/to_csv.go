@@ -9,6 +9,7 @@ import (
 
 	pbV1 "github.com/golang/protobuf/proto"
 	pb "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 type csvInfo struct {
@@ -81,7 +82,6 @@ func V2ProtosToCSV(protos []pb.Message, fields map[string][]string) (map[string]
 func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[string][]string, parent, parentFile, file string) {
 	pr := proto.ProtoReflect()
 	d := pr.Descriptor()
-	pFields := d.Fields()
 
 	// Initialise new CSV file if necessary
 	pName := string(d.Name())
@@ -92,7 +92,7 @@ func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[strin
 		csv.Data[file] = make(map[string][]string)
 	}
 
-	// Add index of parent file if neccessary
+	// Add index of parent file if necessary
 	if parentFile != "" {
 		parentField := parentFile + ".id"
 		if stringArrayContains(includedFields[file], parentField) {
@@ -100,6 +100,7 @@ func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[strin
 		}
 	}
 
+	pFields := d.Fields()
 	for i := 0; i < pFields.Len(); i++ {
 		field := pFields.Get(i)
 		fieldName := string(field.Name())
@@ -115,12 +116,12 @@ func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[strin
 		}
 
 		// This will only convert message fields else it will panic.
-		if field.Cardinality().GoString() == "Repeated" {
+		if field.Cardinality() == protoreflect.Repeated {
 			repeated := pr.Get(field).List().NewElement().Message().Interface()
 			populateFieldNames(repeated, csv, includedFields, "", file, "")
 			continue
 		}
-		if field.Kind().GoString() == "MessageKind" {
+		if field.Kind() == protoreflect.MessageKind {
 			populateFieldNames(pr.Get(field).Message().Interface(), csv, includedFields, fieldName, "", file)
 		} else {
 			csv.Data[file][fieldName] = make([]string, 0)
@@ -131,7 +132,6 @@ func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[strin
 func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file string, parentID int) {
 	pr := proto.ProtoReflect()
 	d := pr.Descriptor()
-	pFields := d.Fields()
 	pName := string(d.Name())
 	if file == "" {
 		file = pName
@@ -140,7 +140,7 @@ func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file strin
 	//Determine if the row is empty
 	nonEmpty := false
 
-	// Populate index of parent if neccessary
+	// Populate index of parent if necessary
 	if parentType != "" {
 		parentField := parentType + ".id"
 		if csv.Data[file][parentField] != nil {
@@ -150,6 +150,7 @@ func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file strin
 	}
 
 	// Populate remaining fields
+	pFields := d.Fields()
 	for i := 0; i < pFields.Len(); i++ {
 		field := pFields.Get(i)
 		fieldName := string(field.Name())
@@ -160,7 +161,7 @@ func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file strin
 		// Only populate required fields
 		if csv.Data[file][fieldName] == nil {
 			// If the field is a message or repeated then we check recursively instead
-			if field.Kind().GoString() != "MessageKind" && field.Cardinality().GoString() != "Repeated" {
+			if field.Kind() != protoreflect.MessageKind && field.Cardinality() != protoreflect.Repeated {
 				continue
 			}
 		}
@@ -168,7 +169,7 @@ func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file strin
 
 		// Populate repeated subfields into a seperate CSV
 		// This currently only supports message subfields
-		if field.Cardinality().GoString() == "Repeated" {
+		if field.Cardinality() == protoreflect.Repeated {
 			repeated := pr.Get(field).List()
 			for j := 0; j < repeated.Len(); j++ {
 				m := repeated.Get(j).Message().Interface()
@@ -178,7 +179,7 @@ func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file strin
 		}
 
 		// Populate singular subfield into same CSV
-		if field.Kind().GoString() == "MessageKind" {
+		if field.Kind() == protoreflect.MessageKind {
 			populateBody(pr.Get(field).Message().Interface(), csv, fieldName, "", file, 0)
 			continue
 		} else {

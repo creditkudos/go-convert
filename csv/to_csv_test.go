@@ -1,6 +1,7 @@
 package csv
 
 import (
+	"io/ioutil"
 	"testing"
 
 	"github.com/creditkudos/go-convert/test_protos"
@@ -70,6 +71,25 @@ func TestStringArrayContains(t *testing.T) {
 	Convey("Nil array", t, func() {
 		result := stringArrayContains(nil, "a")
 		So(result, ShouldBeTrue)
+	})
+}
+
+func TestRegression(t *testing.T) {
+	bytes, _ := ioutil.ReadFile("./test_data/testprotodata")
+	p := test_protos.Master{}
+	pb.Unmarshal(bytes, &p)
+
+	masterBytes, _ := ioutil.ReadFile("./test_data/Master.txt")
+	minionBytes, _ := ioutil.ReadFile("./test_data/Minion.txt")
+	childBytes, _ := ioutil.ReadFile("./test_data/Child.txt")
+
+	Convey("Correctly produces csv files", t, func() {
+		csvData, err := V1ProtosToCSV([]pb.Message{&p}, nil)
+
+		So(err, ShouldBeNil)
+		So(csvData["Master"], ShouldEqual, string(masterBytes))
+		So(csvData["Minion"], ShouldEqual, string(minionBytes))
+		So(csvData["Child"], ShouldEqual, string(childBytes))
 	})
 }
 
