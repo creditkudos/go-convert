@@ -35,9 +35,13 @@ func V2ProtosToCSV(protos []pb.Message, fields map[string][]string) (map[string]
 		make(map[string]map[string][]string),
 		make(map[string]int),
 	}
-	populateFieldNames(protos[0], &info, fields, "", "", "")
+	if err := populateFieldNames(protos[0], &info, fields, "", "", ""); err != nil {
+		return nil, err
+	}
 	for _, proto := range protos {
-		populateBody(proto, &info, "", "", "", 0)
+		if err := populateBody(proto, &info, "", "", "", 0); err != nil {
+			return nil, err
+		}
 	}
 
 	// Convert the map into rows
@@ -79,7 +83,9 @@ func V2ProtosToCSV(protos []pb.Message, fields map[string][]string) (map[string]
 	return csvs, nil
 }
 
-func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[string][]string, parent, parentFile, file string) {
+func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[string][]string, parent, parentFile, file string) (err error) {
+	defer errorOnPanic(&err)
+
 	pr := proto.ProtoReflect()
 	d := pr.Descriptor()
 
@@ -95,7 +101,7 @@ func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[strin
 	// Add index of parent file if necessary
 	if parentFile != "" {
 		parentField := parentFile + ".id"
-		if stringArrayContains(includedFields[file], parentField) {
+		if shouldIncludeField(includedFields[file], parentField) {
 			csv.Data[file][parentField] = make([]string, 0)
 		}
 	}
@@ -111,25 +117,33 @@ func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[strin
 		}
 
 		// Only include specified fields
-		if !stringArrayContains(includedFields[file], fieldName) {
+		if !shouldIncludeField(includedFields[file], fieldName) {
 			continue
 		}
 
-		// This will only convert message fields else it will panic.
+		// This will only convert message fields else it will error.
 		if field.Cardinality() == protoreflect.Repeated {
 			repeated := pr.Get(field).List().NewElement().Message().Interface()
-			populateFieldNames(repeated, csv, includedFields, "", file, "")
+			if err := populateFieldNames(repeated, csv, includedFields, "", file, ""); err != nil {
+				return err
+			}
 			continue
 		}
 		if field.Kind() == protoreflect.MessageKind {
-			populateFieldNames(pr.Get(field).Message().Interface(), csv, includedFields, fieldName, "", file)
+			if err := populateFieldNames(pr.Get(field).Message().Interface(), csv, includedFields, fieldName, "", file); err != nil {
+				return err
+			}
 		} else {
 			csv.Data[file][fieldName] = make([]string, 0)
 		}
 	}
+
+	return nil
 }
 
-func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file string, parentID int) {
+func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file string, parentID int) (err error) {
+	defer errorOnPanic(&err)
+
 	pr := proto.ProtoReflect()
 	d := pr.Descriptor()
 	pName := string(d.Name())
@@ -173,14 +187,19 @@ func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file strin
 			repeated := pr.Get(field).List()
 			for j := 0; j < repeated.Len(); j++ {
 				m := repeated.Get(j).Message().Interface()
-				populateBody(m, csv, "", file, "", csv.Rows[file])
+				if err := populateBody(m, csv, "", file, "", csv.Rows[file]); err != nil {
+					return err
+				}
 			}
 			continue
 		}
 
 		// Populate singular subfield into same CSV
 		if field.Kind() == protoreflect.MessageKind {
-			populateBody(pr.Get(field).Message().Interface(), csv, fieldName, "", file, 0)
+			if err := populateBody(pr.Get(field).Message().Interface(), csv, fieldName, "", file, 0); err != nil {
+				return err
+			}
+
 			continue
 		} else {
 			csv.Data[file][fieldName] = append(csv.Data[file][fieldName], pr.Get(field).String())
@@ -198,6 +217,8 @@ func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file strin
 			}
 		}
 	}
+
+	return nil
 }
 
 /* Convert between V1 and V2 go implementations of protos, while both protos are V3 the go representation
@@ -213,7 +234,7 @@ func V1ToV2(v1Protos []pbV1.Message) ([]pb.Message, error) {
 	return v2Protos, nil
 }
 
-func stringArrayContains(array []string, value string) bool {
+func shouldIncludeField(array []string, value string) bool {
 	//if nil then always true, if empty then always false
 	if array == nil {
 		return true
@@ -226,4 +247,10 @@ func stringArrayContains(array []string, value string) bool {
 	}
 
 	return false
+}
+
+func errorOnPanic(err *error) {
+	if r := recover(); r != nil {
+		(*err) = fmt.Errorf("Recovered from panic: %v", r)
+	}
 }

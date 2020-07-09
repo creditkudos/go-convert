@@ -26,3 +26,7 @@ message Minion {
 message Child {
   string ca = 1;
 }
+
+message RepeatedFailure {
+  repeated string s = 1;
+}

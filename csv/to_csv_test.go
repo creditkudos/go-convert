@@ -3,6 +3,7 @@ package csv
 import (
 	"io/ioutil"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/creditkudos/go-convert/test_protos"
@@ -63,14 +64,14 @@ func TestStringArrayContains(t *testing.T) {
 	array := []string{"a", "b", "c", "&"}
 
 	Convey("Populated array", t, func() {
-		result := stringArrayContains(array, "a")
+		result := shouldIncludeField(array, "a")
 		So(result, ShouldBeTrue)
-		result = stringArrayContains(array, "f")
+		result = shouldIncludeField(array, "f")
 		So(result, ShouldBeFalse)
 	})
 
 	Convey("Nil array", t, func() {
-		result := stringArrayContains(nil, "a")
+		result := shouldIncludeField(nil, "a")
 		So(result, ShouldBeTrue)
 	})
 }
@@ -79,15 +80,27 @@ func TestRegression(t *testing.T) {
 	protos := []pb.Message{}
 
 	for i := 0; i < 3; i++ {
-		bytes, _ := ioutil.ReadFile("./test_data/testprotodata" + strconv.Itoa(i))
+		bytes, err := ioutil.ReadFile("./test_data/testprotodata" + strconv.Itoa(i))
+		if err != nil {
+			t.Fatal(err)
+		}
 		p := &test_protos.Master{}
 		pb.Unmarshal(bytes, p)
 		protos = append(protos, p)
 	}
 
-	masterBytes, _ := ioutil.ReadFile("./test_data/Master.txt")
-	minionBytes, _ := ioutil.ReadFile("./test_data/Minion.txt")
-	childBytes, _ := ioutil.ReadFile("./test_data/Child.txt")
+	masterBytes, err := ioutil.ReadFile("./test_data/Master.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	minionBytes, err := ioutil.ReadFile("./test_data/Minion.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	childBytes, err := ioutil.ReadFile("./test_data/Child.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	Convey("Correctly produces csv files", t, func() {
 		csvData, err := V1ProtosToCSV(protos, nil)
@@ -103,18 +116,28 @@ func TestV2ProtosToCSV(t *testing.T) {
 	Convey("All fields created", t, func() {
 		csvData, err := V2ProtosToCSV(v2TestData, nil)
 
+		expectedMaster := []string{
+			"a,b,c,d,e,f,g,h,j.ma,j.mb,j.md.ca",
+			"string,1,-2,3,4,5.5,6.5,true,minion-string,7,child-string",
+			",0,0,0,0,0,0,false,minion-string 2,7,child-string 2",
+			"",
+		}
+		expectedMinion := []string{
+			"Master.id,ma,mb,md.ca",
+			"1,minion-string &2,0,",
+			"1,minion-string =3,0,child-string ",
+			"",
+		}
+		expectedChild := []string{
+			"Master.id,Minion.id,ca",
+			",0,child-string ",
+			"",
+		}
+
 		So(err, ShouldBeNil)
-		So(csvData["Master"], ShouldEqual,
-			"a,b,c,d,e,f,g,h,j.ma,j.mb,j.md.ca\n"+
-				"string,1,-2,3,4,5.5,6.5,true,minion-string,7,child-string\n"+
-				",0,0,0,0,0,0,false,minion-string 2,7,child-string 2\n")
-		So(csvData["Minion"], ShouldEqual,
-			"Master.id,ma,mb,md.ca\n"+
-				"1,minion-string &2,0,\n"+
-				"1,minion-string =3,0,child-string \n")
-		So(csvData["Child"], ShouldEqual,
-			"Master.id,Minion.id,ca\n"+
-				",0,child-string \n")
+		So(csvData["Master"], ShouldEqual, strings.Join(expectedMaster, "\n"))
+		So(csvData["Minion"], ShouldEqual, strings.Join(expectedMinion, "\n"))
+		So(csvData["Child"], ShouldEqual, strings.Join(expectedChild, "\n"))
 	})
 
 	Convey("Specific fields created", t, func() {
@@ -178,7 +201,9 @@ func TestPopulateFieldNames(t *testing.T) {
 		includedFields["Minion"] = []string{"ma", "mb", "md"}
 		includedFields["Child"] = []string{"ca"}
 
-		populateFieldNames(v2TestData[0], &info, includedFields, "", "", "")
+		err := populateFieldNames(v2TestData[0], &info, includedFields, "", "", "")
+		So(err, ShouldBeNil)
+
 		data := info.Data
 		master := data["Master"]
 		minion := data["Minion"]
@@ -198,6 +223,19 @@ func TestPopulateFieldNames(t *testing.T) {
 		So(minion["mb"], ShouldBeEmpty)
 		So(minion["mc"], ShouldBeNil)
 		So(child["ca"], ShouldBeEmpty)
+	})
+
+	Convey("Unsupported repeated field", t, func() {
+		info := csvInfo{
+			make(map[string]map[string][]string),
+			make(map[string]int),
+		}
+
+		protos, err := V1ToV2([]pb.Message{&test_protos.RepeatedFailure{}})
+		So(err, ShouldBeNil)
+
+		err = populateFieldNames(protos[0], &info, nil, "", "", "")
+		So(err, ShouldNotBeNil)
 	})
 }
 
