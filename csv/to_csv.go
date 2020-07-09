@@ -17,6 +17,10 @@ type csvInfo struct {
 	Rows map[string]int
 }
 
+var supportedRepeatedTypes = []protoreflect.Kind{
+	protoreflect.MessageKind,
+}
+
 func V1ProtosToCSV(v1Protos []pbV1.Message, fields map[string][]string) (map[string]string, error) {
 	v2Protos, err := V1ToV2(v1Protos)
 	if err != nil {
@@ -84,8 +88,6 @@ func V2ProtosToCSV(protos []pb.Message, fields map[string][]string) (map[string]
 }
 
 func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[string][]string, parent, parentFile, file string) (err error) {
-	defer errorOnPanic(&err)
-
 	pr := proto.ProtoReflect()
 	d := pr.Descriptor()
 
@@ -123,6 +125,10 @@ func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[strin
 
 		// This will only convert message fields else it will error.
 		if field.Cardinality() == protoreflect.Repeated {
+			if !repeatedFieldSupported(field) {
+				return fmt.Errorf("unable to convert unsupported repeated field")
+			}
+
 			repeated := pr.Get(field).List().NewElement().Message().Interface()
 			if err := populateFieldNames(repeated, csv, includedFields, "", file, ""); err != nil {
 				return err
@@ -142,8 +148,6 @@ func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[strin
 }
 
 func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file string, parentID int) (err error) {
-	defer errorOnPanic(&err)
-
 	pr := proto.ProtoReflect()
 	d := pr.Descriptor()
 	pName := string(d.Name())
@@ -184,6 +188,10 @@ func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file strin
 		// Populate repeated subfields into a seperate CSV
 		// This currently only supports message subfields
 		if field.Cardinality() == protoreflect.Repeated {
+			if !repeatedFieldSupported(field) {
+				return fmt.Errorf("unable to convert unsupported repeated field")
+			}
+
 			repeated := pr.Get(field).List()
 			for j := 0; j < repeated.Len(); j++ {
 				m := repeated.Get(j).Message().Interface()
@@ -249,8 +257,13 @@ func shouldIncludeField(array []string, value string) bool {
 	return false
 }
 
-func errorOnPanic(err *error) {
-	if r := recover(); r != nil {
-		(*err) = fmt.Errorf("Recovered from panic: %v", r)
+func repeatedFieldSupported(field protoreflect.FieldDescriptor) bool {
+	fieldKind := field.Kind()
+	for _, supported := range supportedRepeatedTypes {
+		if supported == fieldKind {
+			return true
+		}
 	}
+
+	return false
 }
