@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package test_protos;
+option go_package = "test_protos";
+
+message Master {
+  string a = 1;
+  int32 b = 2;
+  int64 c = 3;
+  uint32 d = 4;
+  uint64 e = 5;
+  float f = 6;
+  double g = 7;
+  bool h = 8;
+  repeated Minion i = 9;
+  Minion j = 10;
+}
+
+message Minion {
+  string ma = 1;
+  int32 mb = 2;
+  repeated Child mc = 3;
+  Child md = 4;
+}
+
+message Child {
+  string ca = 1;
+}
+
+message RepeatedFailure {
+  repeated string s = 1;
+}

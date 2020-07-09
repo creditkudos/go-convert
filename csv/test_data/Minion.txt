@@ -1,0 +1,5 @@
+Master.id,ma,mb,md.ca
+1,minion-string &2,0,
+1,minion-string =3,0,child-string 
+2,minion-string &2,0,
+2,minion-string =3,0,child-string 
