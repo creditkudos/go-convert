@@ -106,9 +106,9 @@ func TestRegression(t *testing.T) {
 		csvData, err := V1ProtosToCSV(protos, nil)
 
 		So(err, ShouldBeNil)
-		So(csvData["Master"], ShouldEqual, string(masterBytes))
-		So(csvData["Minion"], ShouldEqual, string(minionBytes))
-		So(csvData["Child"], ShouldEqual, string(childBytes))
+		So(strings.Split(csvData["Master"], "\n"), ShouldResemble, strings.Split(string(masterBytes), "\n"))
+		So(strings.Split(csvData["Minion"], "\n"), ShouldResemble, strings.Split(string(minionBytes), "\n"))
+		So(strings.Split(csvData["Child"], "\n"), ShouldResemble, strings.Split(string(childBytes), "\n"))
 	})
 }
 
@@ -117,15 +117,15 @@ func TestV2ProtosToCSV(t *testing.T) {
 		csvData, err := V2ProtosToCSV(v2TestData, nil)
 
 		expectedMaster := []string{
-			"a,b,c,d,e,f,g,h,j.ma,j.mb,j.md.ca",
-			"string,1,-2,3,4,5.5,6.5,true,minion-string,7,child-string",
-			",0,0,0,0,0,0,false,minion-string 2,7,child-string 2",
+			"a,b,c,d,e,f,g,h,j.ma,j.mb,j.md.ca,k,l",
+			"string,1,-2,3,4,5.5,6.5,true,minion-string,7,child-string,,",
+			",0,0,0,0,0,0,false,minion-string 2,7,child-string 2,,",
 			"",
 		}
 		expectedMinion := []string{
-			"Master.id,ma,mb,md.ca",
-			"1,minion-string &2,0,",
-			"1,minion-string =3,0,child-string ",
+			"Master.id,Master.m.key,ma,mb,md.ca",
+			"1,,minion-string &2,0,",
+			"1,,minion-string =3,0,child-string ",
 			"",
 		}
 		expectedChild := []string{
@@ -180,6 +180,8 @@ func TestPopulateFieldNames(t *testing.T) {
 		So(master["j.ma"], ShouldBeEmpty)
 		So(master["j.md"], ShouldBeNil)
 		So(master["j.md.ca"], ShouldBeEmpty)
+		So(master["l"], ShouldBeEmpty)
+		So(master["m"], ShouldBeNil)
 
 		So(minion["Master.id"], ShouldBeEmpty)
 		So(minion["md"], ShouldBeNil)
@@ -213,6 +215,8 @@ func TestPopulateFieldNames(t *testing.T) {
 		So(master["b"], ShouldBeEmpty)
 		So(master["c"], ShouldBeEmpty)
 		So(master["d"], ShouldBeEmpty)
+		So(master["l"], ShouldBeNil)
+		So(master["m"], ShouldBeNil)
 
 		// Check subfield
 		So(master["j"], ShouldBeNil)
@@ -223,19 +227,6 @@ func TestPopulateFieldNames(t *testing.T) {
 		So(minion["mb"], ShouldBeEmpty)
 		So(minion["mc"], ShouldBeNil)
 		So(child["ca"], ShouldBeEmpty)
-	})
-
-	Convey("Unsupported repeated field", t, func() {
-		info := csvInfo{
-			make(map[string]map[string][]string),
-			make(map[string]int),
-		}
-
-		protos, err := V1ToV2([]pb.Message{&test_protos.RepeatedFailure{}})
-		So(err, ShouldBeNil)
-
-		err = populateFieldNames(protos[0], &info, nil, "", "", "")
-		So(err, ShouldNotBeNil)
 	})
 }
 
@@ -298,9 +289,9 @@ func TestPopulateBody(t *testing.T) {
 		So(master["j.md.ca"][0], ShouldEqual, "child-string")
 		So(master["j.md.ca"][1], ShouldEqual, "child-string 2")
 
-		So(minion["Master.id"][0], ShouldEqual, 1)
-		So(minion["Master.id"][1], ShouldEqual, 1)
+		So(minion["Master.id"][0], ShouldEqual, "1")
+		So(minion["Master.id"][1], ShouldEqual, "1")
 		So(minion["ma"][0], ShouldEqual, "minion-string &2")
-		So(minion["mb"][1], ShouldEqual, "minion-string =3")
+		So(minion["mb"][1], ShouldEqual, "0")
 	})
 }

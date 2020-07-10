@@ -14,6 +14,9 @@ message Master {
   bool h = 8;
   repeated Minion i = 9;
   Minion j = 10;
+  repeated string k = 11;
+  map<string, float> l = 12;
+  map<string, Minion> m = 13;
 }
 
 message Minion {
