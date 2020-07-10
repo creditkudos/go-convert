@@ -294,4 +294,39 @@ func TestPopulateBody(t *testing.T) {
 		So(minion["ma"][0], ShouldEqual, "minion-string &2")
 		So(minion["mb"][1], ShouldEqual, "0")
 	})
+
+	Convey("Repeated fields created correctly", t, func() {
+		info := csvInfo{
+			make(map[string]map[string][]string),
+			make(map[string]int),
+		}
+
+		p := *v1TestData[0].(*test_protos.Master)
+		p.K = []string{"A string", "another string"}
+		l := make(map[string]float32)
+		l["first"] = 0.5
+		l["second"] = 3.141592
+		p.L = l
+		m := make(map[string]*test_protos.Minion)
+		m["first minion"] = &test_protos.Minion{}
+		m["second minion"] = &test_protos.Minion{
+			Ma: "Minion string",
+		}
+		p.M = m
+
+		testData, err := V1ToV2([]pb.Message{&p})
+		So(err, ShouldBeNil)
+
+		err = populateFieldNames(testData[0], &info, nil, "", "", "")
+		So(err, ShouldBeNil)
+		err = populateBody(testData[0], &info, "", "", "", 0)
+
+		master := info.Data["Master"]
+		minion := info.Data["Minion"]
+
+		So(master["k"][0], ShouldEqual, "A string,another string")
+		So(master["l"][0], ShouldEqual, "first:0.5,second:3.141592")
+		So(master["m"], ShouldBeNil)
+		So([]string{"first minion", "second minion"}, ShouldContain, minion["Master.m.key"][0])
+	})
 }
