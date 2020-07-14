@@ -1,0 +1,50 @@
+version: "3.7"
+# Once everything ported across:
+# * remove "ck_dev" network
+# * move from "ports" to "expose" for internal services.
+
+services:
+  # Applications
+  go_convert:
+    image: docker.creditkudos-development.com/development-go_convert:latest
+    build:
+      context: .
+      dockerfile: ./config/dockerfiles/multi.Dockerfile
+      args:
+        - "ck_github_token=$CK_GITHUB_TOKEN"
+        - "ck_github_username=$CK_GITHUB_USERNAME"
+      target: development
+    container_name: go_convert
+    environment:
+      - ENV_NAME=development
+      - ENV_TYPE=development
+      - CK_GITHUB_TOKEN
+      - CK_GITHUB_USERNAME
+      - AWS_REGION
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - DATABASE_HOST=db
+      - DATABASE_NAME=creditkudos_development
+      - DATABASE_USERNAME=postgres
+      - DATABASE_PASSWORD=
+      - DATABASE_PORT=5432
+      - MIXPANEL_TOKEN=c1f81a877f0e48047e401b20415ffc27
+      - OPTIMIZELY_TOKEN=Kgf3yAE7jeWi7fcPX8nE6r
+      - REDIS_URL=redis://redis
+    volumes:
+      - type: bind
+        source: ../go-convert
+        target: /home/app/repo
+        consistency: delegated
+      - type: volume
+        source: cache_go_deps
+        target: /go/pkg/mod
+        consistency: delegated
+    networks:
+      - dev
+
+networks:
+  dev:
+    driver: bridge
+volumes:
+  cache_go_deps:
