@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	pbV1 "github.com/golang/protobuf/proto"
 	pb "google.golang.org/protobuf/proto"
@@ -15,10 +16,6 @@ import (
 type csvInfo struct {
 	Data map[string]map[string][]string
 	Rows map[string]int
-}
-
-var supportedRepeatedTypes = []protoreflect.Kind{
-	protoreflect.MessageKind,
 }
 
 func V1ProtosToCSV(v1Protos []pbV1.Message, fields map[string][]string) (map[string]string, error) {
@@ -42,6 +39,7 @@ func V2ProtosToCSV(protos []pb.Message, fields map[string][]string) (map[string]
 	if err := populateFieldNames(protos[0], &info, fields, "", "", ""); err != nil {
 		return nil, err
 	}
+
 	for _, proto := range protos {
 		if err := populateBody(proto, &info, "", "", "", 0); err != nil {
 			return nil, err
@@ -96,7 +94,7 @@ func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[strin
 	if file == "" {
 		file = pName
 	}
-	if len(csv.Data[file]) == 0 {
+	if csv.Data[file] == nil {
 		csv.Data[file] = make(map[string][]string)
 	}
 
@@ -125,23 +123,58 @@ func populateFieldNames(proto pb.Message, csv *csvInfo, includedFields map[strin
 
 		// This will only convert message fields else it will error.
 		if field.Cardinality() == protoreflect.Repeated {
-			if !repeatedFieldSupported(field) {
-				return fmt.Errorf("unable to convert unsupported repeated field")
-			}
+			fieldValue := pr.Get(field)
+			if field.IsList() {
+				if field.Kind() == protoreflect.MessageKind {
+					repeated := fieldValue.List().NewElement().Message().Interface()
+					if err := populateFieldNames(repeated, csv, includedFields, "", file, ""); err != nil {
+						return err
+					}
+					continue
+				}
 
-			repeated := pr.Get(field).List().NewElement().Message().Interface()
-			if err := populateFieldNames(repeated, csv, includedFields, "", file, ""); err != nil {
+				// For flat field values we format as "array[0],array[1],..."
+			} else if field.IsMap() {
+				if field.MapValue().Kind() == protoreflect.MessageKind {
+					if err := populateMapFieldNames(field, fieldValue.Map(), csv, includedFields, "", file); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+		} else if field.Kind() == protoreflect.MessageKind {
+			if err := populateFieldNames(pr.Get(field).Message().Interface(), csv, includedFields, fieldName, "", file); err != nil {
 				return err
 			}
 			continue
 		}
-		if field.Kind() == protoreflect.MessageKind {
-			if err := populateFieldNames(pr.Get(field).Message().Interface(), csv, includedFields, fieldName, "", file); err != nil {
-				return err
-			}
-		} else {
-			csv.Data[file][fieldName] = make([]string, 0)
-		}
+
+		csv.Data[file][fieldName] = []string{}
+	}
+
+	return nil
+}
+
+func populateMapFieldNames(field protoreflect.FieldDescriptor, m protoreflect.Map, csv *csvInfo, includedFields map[string][]string, parent, parentType string) (err error) {
+	if parentType == "" {
+		return fmt.Errorf("unable to populate map with empty parentType")
+	}
+	if field.MapValue().Kind() != protoreflect.MessageKind {
+		return fmt.Errorf("unable to populate map body with non-message field values")
+	}
+	if field.MapKey().Kind() == protoreflect.MessageKind {
+		return fmt.Errorf("unable to populate map body with message key values")
+	}
+
+	file := string(m.NewValue().Message().Descriptor().Name())
+	keyColumnField := parentType + "." + string(field.Name()) + ".key"
+	if csv.Data[file] == nil {
+		csv.Data[file] = make(map[string][]string)
+	}
+	csv.Data[file][keyColumnField] = []string{}
+
+	if err := populateFieldNames(m.NewValue().Message().Interface(), csv, includedFields, "", parentType, file); err != nil {
+		return err
 	}
 
 	return nil
@@ -178,8 +211,8 @@ func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file strin
 
 		// Only populate required fields
 		if csv.Data[file][fieldName] == nil {
-			// If the field is a message or repeated then we check recursively instead
-			if field.Kind() != protoreflect.MessageKind && field.Cardinality() != protoreflect.Repeated {
+			// Message fields are checked recursively
+			if field.Kind() != protoreflect.MessageKind {
 				continue
 			}
 		}
@@ -188,17 +221,33 @@ func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file strin
 		// Populate repeated subfields into a seperate CSV
 		// This currently only supports message subfields
 		if field.Cardinality() == protoreflect.Repeated {
-			if !repeatedFieldSupported(field) {
-				return fmt.Errorf("unable to convert unsupported repeated field")
-			}
-
-			repeated := pr.Get(field).List()
-			for j := 0; j < repeated.Len(); j++ {
-				m := repeated.Get(j).Message().Interface()
-				if err := populateBody(m, csv, "", file, "", csv.Rows[file]); err != nil {
-					return err
+			fieldValue := pr.Get(field)
+			if field.IsList() {
+				if field.Kind() != protoreflect.MessageKind {
+					csv.Data[file][fieldName] = append(csv.Data[file][fieldName], protoListToString(fieldValue.List()))
+				} else {
+					repeated := fieldValue.List()
+					for j := 0; j < repeated.Len(); j++ {
+						m := repeated.Get(j).Message().Interface()
+						if err := populateBody(m, csv, "", file, "", csv.Rows[file]); err != nil {
+							return err
+						}
+					}
+				}
+			} else if field.IsMap() {
+				if field.MapKey().Kind() != protoreflect.MessageKind && field.MapValue().Kind() != protoreflect.MessageKind {
+					// Map fields are stored as message fields so require an additional check
+					if csv.Data[file][fieldName] == nil {
+						continue
+					}
+					csv.Data[file][fieldName] = append(csv.Data[file][fieldName], protoMapToString(fieldValue.Map()))
+				} else {
+					if err := populateMapBody(field, fieldValue.Map(), csv, file, csv.Rows[file]); err != nil {
+						return err
+					}
 				}
 			}
+
 			continue
 		}
 
@@ -225,6 +274,33 @@ func populateBody(proto pb.Message, csv *csvInfo, parent, parentType, file strin
 			}
 		}
 	}
+
+	return nil
+}
+
+func populateMapBody(field protoreflect.FieldDescriptor, m protoreflect.Map, csv *csvInfo, parentType string, parentID int) (err error) {
+	if parentType == "" {
+		return fmt.Errorf("unable to populate map with empty parentType")
+	}
+	if field.MapValue().Kind() != protoreflect.MessageKind {
+		return fmt.Errorf("unable to populate map body with non-message field values")
+	}
+	if field.MapKey().Kind() == protoreflect.MessageKind {
+		return fmt.Errorf("unable to populate map body with message key values")
+	}
+
+	file := string(m.NewValue().Message().Descriptor().Name())
+	keyColumnField := parentType + "." + string(field.Name()) + ".key"
+
+	m.Range(func(key protoreflect.MapKey, value protoreflect.Value) bool {
+		csv.Data[file][keyColumnField] = append(csv.Data[file][keyColumnField], key.String())
+
+		if err := populateBody(value.Message().Interface(), csv, "", parentType, file, parentID); err != nil {
+			return false
+		}
+
+		return true
+	})
 
 	return nil
 }
@@ -257,13 +333,33 @@ func shouldIncludeField(array []string, value string) bool {
 	return false
 }
 
-func repeatedFieldSupported(field protoreflect.FieldDescriptor) bool {
-	fieldKind := field.Kind()
-	for _, supported := range supportedRepeatedTypes {
-		if supported == fieldKind {
-			return true
-		}
+func protoListToString(a protoreflect.List) string {
+	outputString := []string{}
+
+	for i := 0; i < a.Len(); i++ {
+		outputString = append(outputString, a.Get(i).String())
 	}
 
-	return false
+	return strings.Join(outputString, ",")
+}
+
+func protoMapToString(a protoreflect.Map) string {
+	stringMap := make(map[string]string)
+	fields := []string{}
+
+	a.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
+		ks := k.String()
+		stringMap[ks] = v.String()
+		fields = append(fields, ks)
+		return true
+	})
+
+	// Obtain consistent ordering
+	sort.Strings(fields)
+	mapString := []string{}
+	for _, key := range fields {
+		mapString = append(mapString, key+":"+stringMap[key])
+	}
+
+	return strings.Join(mapString, ",")
 }

@@ -1,5 +1,7 @@
-Master.id,ma,mb,md.ca
-1,minion-string &2,0,
-1,minion-string =3,0,child-string 
-2,minion-string &2,0,
-2,minion-string =3,0,child-string 
+Master.id,Master.m.key,ma,mb,md.ca
+0,zero,Minion key string,0,
+0,1,,42,
+1,,minion-string &2,0,
+1,,minion-string =3,0,child-string 
+2,,minion-string &2,0,
+2,,minion-string =3,0,child-string 
